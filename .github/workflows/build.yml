@@ -1,4 +1,4 @@
-name: Dakdekker Trainer Bitumen v1.7 ANDROID34 FIXED APK
+name: Dakdekker Trainer Bitumen v1.8 VERIFIED ANDROID APK
 
 on:
   workflow_dispatch:
@@ -67,7 +67,7 @@ jobs:
           cat > main.gd <<'EOF'
           extends Node
 
-          const VERSION := "v1.7"
+          const VERSION := "v1.8"
           const ORANGE := Color("#ff6b00")
           const DARK := Color("#111820")
           const PANEL := Color("#18212b")
@@ -400,7 +400,7 @@ jobs:
           export_filter="all_resources"
           include_filter=""
           exclude_filter=""
-          export_path="build/android/Dakdekker-Trainer-Bitumen-v1.7.apk"
+          export_path="build/android/Dakdekker-Trainer-Bitumen-v1.8.apk"
           encryption_include_filters=""
           encryption_exclude_filters=""
           encrypt_pck=false
@@ -414,10 +414,14 @@ jobs:
           architectures/arm64-v8a=true
           package/unique_name="com.dakdekkertrainer.bitumen"
           package/name="Dakdekker Trainer Bitumen"
-          package/target_sdk=34
-          package/min_sdk=24
-          version/code=170
-          version/name="1.7"
+          package/signed=true
+          gradle_build/min_sdk=""
+          gradle_build/target_sdk=""
+          keystore/debug=""
+          keystore/debug_user=""
+          keystore/debug_password=""
+          version/code=180
+          version/name="1.8"
           screen/immersive_mode=true
           EOF
 
@@ -510,11 +514,100 @@ jobs:
           test -d "$ANDROID_HOME/platforms/android-34"
           test -x "$ANDROID_HOME/platform-tools/adb"
 
+      - name: Forceer geldige Godot Android editorinstellingen
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME}}"
+          JAVA_BIN="$(readlink -f "$(command -v javac)")"
+          JAVA_ROOT="$(dirname "$(dirname "$JAVA_BIN")")"
+          SETTINGS="$HOME/.config/godot/editor_settings-4.4.tres"
+          KEYSTORE="$HOME/debug.keystore"
+
+          echo "SDK_ROOT=$SDK_ROOT"
+          echo "JAVA_ROOT=$JAVA_ROOT"
+          java -version
+          javac -version
+
+          test -d "$JAVA_ROOT"
+          test -x "$JAVA_ROOT/bin/java"
+          test -x "$JAVA_ROOT/bin/javac"
+          test -d "$SDK_ROOT"
+          test -x "$SDK_ROOT/platform-tools/adb"
+          test -d "$SDK_ROOT/build-tools/34.0.0"
+          test -d "$SDK_ROOT/platforms/android-34"
+
+          # Maak een eigen standaard Android debug-keystore.
+          rm -f "$KEYSTORE"
+          keytool -genkeypair -v \
+            -keystore "$KEYSTORE" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          keytool -list -keystore "$KEYSTORE" -storepass android -alias androiddebugkey >/dev/null
+          test -s "$KEYSTORE"
+
+          # Godot 4.4 leest Android SDK/JDK en debug signing uit deze editor settings.
+          mkdir -p "$HOME/.config/godot"
+          cat > "$SETTINGS" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/java_sdk_path = "$JAVA_ROOT"
+          export/android/android_sdk_path = "$SDK_ROOT"
+          export/android/debug_keystore = "$KEYSTORE"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          export/android/force_system_user = false
+          export/android/shutdown_adb_on_exit = false
+          EOF
+
+          export JAVA_HOME="$JAVA_ROOT"
+          export ANDROID_HOME="$SDK_ROOT"
+          export ANDROID_SDK_ROOT="$SDK_ROOT"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$KEYSTORE"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android"
+
+          {
+            echo "JAVA_HOME=$JAVA_ROOT"
+            echo "ANDROID_HOME=$SDK_ROOT"
+            echo "ANDROID_SDK_ROOT=$SDK_ROOT"
+            echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$KEYSTORE"
+            echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey"
+            echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android"
+          } >> "$GITHUB_ENV"
+
+          echo "=== Godot editor settings ==="
+          cat "$SETTINGS"
+          echo "=== Export templates ==="
+          test -f "$HOME/.local/share/godot/export_templates/4.4.1.stable/android_debug.apk"
+          test -f "$HOME/.local/share/godot/export_templates/4.4.1.stable/android_release.apk"
+          ls -lh "$HOME/.local/share/godot/export_templates/4.4.1.stable/android_"*.apk
+          echo "=== APK signer/build tools ==="
+          test -x "$SDK_ROOT/build-tools/34.0.0/apksigner"
+          "$SDK_ROOT/build-tools/34.0.0/apksigner" version
+          echo "Android export prerequisites OK."
+
       - name: Importeer en controleer project
         shell: bash
         run: |
           set -euo pipefail
-          godot --headless --editor --path . --quit-after 5 2>&1 | tee godot-import.log
+          set +e
+          godot --headless --editor --path . --quit-after 8 2>&1 | tee godot-import.log
+          RC=${PIPESTATUS[0]}
+          set -e
+          if grep -Eiq "SCRIPT ERROR|Parse Error|Failed to load script" godot-import.log; then
+            echo "::error::GDScript parse/import fout gevonden."
+            exit 1
+          fi
+          exit "$RC"
 
       - name: Bouw Android APK
         shell: bash
@@ -522,21 +615,26 @@ jobs:
           set -euo pipefail
           mkdir -p build/android
           EXPORT_DIR="$(readlink -f build/android)"
-          echo "Export naar: $EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.7.apk"
+          echo "Export naar: $EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.8.apk"
+
+          echo "=== export_presets.cfg ==="
+          cat export_presets.cfg
+          echo "=== editor_settings-4.4.tres ==="
+          cat "$HOME/.config/godot/editor_settings-4.4.tres"
 
           godot --headless --verbose --path . \
             --export-debug "Android Debug" \
-            "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.7.apk" \
+            "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.8.apk" \
             2>&1 | tee android-export.log
 
-          test -s "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.7.apk"
-          ls -lh "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.7.apk"
+          test -s "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.8.apk"
+          ls -lh "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.8.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-Bitumen-v1.7-APK
-          path: build/android/Dakdekker-Trainer-Bitumen-v1.7.apk
+          name: Dakdekker-Trainer-Bitumen-v1.8-APK
+          path: build/android/Dakdekker-Trainer-Bitumen-v1.8.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -544,7 +642,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-Bitumen-v1.7-buildlogs
+          name: Dakdekker-Trainer-Bitumen-v1.8-buildlogs
           path: |
             godot-import.log
             android-export.log
