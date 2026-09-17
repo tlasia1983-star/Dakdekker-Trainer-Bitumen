@@ -1,4 +1,4 @@
-name: Dakdekker Trainer Bitumen v1.0 APK
+name: Dakdekker Trainer Bitumen v1.1 FIXED APK
 
 on:
   workflow_dispatch:
@@ -65,7 +65,7 @@ jobs:
           cat > main.gd <<'EOF'
           extends Node
 
-          const VERSION := "v1.0"
+          const VERSION := "v1.1"
           const ORANGE := Color("#ff6b00")
           const DARK := Color("#111820")
           const PANEL := Color("#18212b")
@@ -413,8 +413,8 @@ jobs:
           package/unique_name="com.dakdekkertrainer.bitumen"
           package/name="Dakdekker Trainer"
           package/signed=true
-          version/code=100
-          version/name="1.0"
+          version/code=110
+          version/name="1.1"
           screen/immersive_mode=true
           screen/support_small=true
           screen/support_normal=true
@@ -424,38 +424,117 @@ jobs:
           launcher_icons/adaptive_foreground_432x432="res://icon.png"
           EOF
 
+      - name: Installeer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Installeer Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Installeer Android pakketten
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.1"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          java -version
+
       - name: Installeer Godot 4.4.1 + Android export templates
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq unzip wget
           wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip -O godot.zip
           unzip -q godot.zip
           chmod +x Godot_v4.4.1-stable_linux.x86_64
           sudo mv Godot_v4.4.1-stable_linux.x86_64 /usr/local/bin/godot
+
           wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz -O templates.tpz
           mkdir -p "$HOME/.local/share/godot/export_templates/4.4.1.stable"
+          rm -rf /tmp/godot_templates
+          mkdir -p /tmp/godot_templates
           unzip -q templates.tpz -d /tmp/godot_templates
           cp -r /tmp/godot_templates/templates/* "$HOME/.local/share/godot/export_templates/4.4.1.stable/"
+          godot --version
 
-      - name: Parse- en projectcontrole
+      - name: Configureer Godot Android SDK en Java
         shell: bash
         run: |
-          set -e
-          godot --headless --path . --editor --quit-after 8
+          set -euo pipefail
+          JAVA_HOME_REAL="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+          SETTINGS_DIR="$HOME/.config/godot"
+          SETTINGS_FILE="$SETTINGS_DIR/editor_settings-4.4.tres"
+          mkdir -p "$SETTINGS_DIR"
+
+          cat > "$SETTINGS_FILE" <<EOF
+          [gd_resource format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME_REAL"
+          EOF
+
+          echo "Godot Android SDK: $ANDROID_HOME"
+          echo "Godot Java SDK:    $JAVA_HOME_REAL"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          test -x "$JAVA_HOME_REAL/bin/java"
+
+      - name: Importeer project
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --path . --editor --quit-after 12 2>&1 | tee godot-import.log
 
       - name: Bouw Android APK
         shell: bash
         run: |
+          set -euo pipefail
+          JAVA_HOME_REAL="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+          export JAVA_HOME="$JAVA_HOME_REAL"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+
+          echo "=== CONTROLE ==="
+          godot --version
+          java -version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "JAVA_HOME=$JAVA_HOME"
+          ls -la "$HOME/.local/share/godot/export_templates/4.4.1.stable/"
+          echo "================"
+
+          set +e
+          godot --headless --verbose --path . --export-debug "Android" "Dakdekker-Trainer-Bitumen-v1.1.apk" 2>&1 | tee android-export.log
+          RESULT=${PIPESTATUS[0]}
           set -e
-          godot --headless --path . --export-debug Android Dakdekker-Trainer-Bitumen-v1.0.apk
-          test -f Dakdekker-Trainer-Bitumen-v1.0.apk
+
+          if [ "$RESULT" -ne 0 ]; then
+            echo "::error::Godot Android export is mislukt. Volledige relevante meldingen:"
+            grep -Ei -C 4 "error|android|java|jdk|sdk|keystore|template|export" android-export.log || true
+            exit "$RESULT"
+          fi
+
+          test -s "Dakdekker-Trainer-Bitumen-v1.1.apk"
+          ls -lh "Dakdekker-Trainer-Bitumen-v1.1.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-Bitumen-v1.0-APK
-          path: Dakdekker-Trainer-Bitumen-v1.0.apk
+          name: Dakdekker-Trainer-Bitumen-v1.1-FIXED-APK
+          path: Dakdekker-Trainer-Bitumen-v1.1.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload buildlog bij fout
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dakdekker-Trainer-v1.1-buildlogs
+          path: |
+            godot-import.log
+            android-export.log
+          if-no-files-found: ignore
+          retention-days: 7
