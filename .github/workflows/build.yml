@@ -1,4 +1,4 @@
-name: Dakdekker Trainer Bitumen v1.4 FIXED APK
+name: Dakdekker Trainer Bitumen v1.5 GODOT-CI APK
 
 on:
   workflow_dispatch:
@@ -65,7 +65,7 @@ jobs:
           cat > main.gd <<'EOF'
           extends Node
 
-          const VERSION := "v1.4"
+          const VERSION := "v1.5"
           const ORANGE := Color("#ff6b00")
           const DARK := Color("#111820")
           const PANEL := Color("#18212b")
@@ -412,9 +412,9 @@ jobs:
           architectures/arm64-v8a=true
           package/unique_name="com.dakdekkertrainer.bitumen"
           package/name="Dakdekker Trainer"
-          package/signed=false
-          version/code=140
-          version/name="1.4"
+          package/signed=true
+          version/code=150
+          version/name="1.5"
           screen/immersive_mode=true
           screen/support_small=true
           screen/support_normal=true
@@ -424,188 +424,39 @@ jobs:
           launcher_icons/adaptive_foreground_432x432="res://icon.png"
           EOF
 
-      - name: Installeer Java 17
-        uses: actions/setup-java@v4
+      - name: Bouw APK met Godot-CI
+        uses: abarichello/godot-ci@4.6.3
         with:
-          distribution: temurin
-          java-version: '17'
+          godot_version: '4.4.1'
+          version_status: 'stable'
+          build_type: 'debug'
+          export_preset: 'Android'
+          export_path: 'Dakdekker-Trainer-Bitumen-v1.5.apk'
 
-      - name: Gebruik voorgeinstalleerde Android SDK
+      - name: Controleer APK
         shell: bash
         run: |
           set -euo pipefail
-
-          # GitHub ubuntu-latest bevat de Android SDK al.
-          # Gebruik die rechtstreeks in plaats van setup-android.
-          if [ -z "${ANDROID_HOME:-}" ]; then
-            if [ -d "/usr/local/lib/android/sdk" ]; then
-              echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
-              echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
-              ANDROID_HOME="/usr/local/lib/android/sdk"
-            else
-              echo "::error::Geen voorgeinstalleerde Android SDK gevonden."
-              exit 1
-            fi
-          else
-            echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "Zoeken naar gebouwde APK..."
+          find . -maxdepth 4 -type f -name '*.apk' -print
+          APK="$(find . -maxdepth 4 -type f -name 'Dakdekker-Trainer-Bitumen-v1.5.apk' -print -quit)"
+          if [ -z "$APK" ]; then
+            APK="$(find . -maxdepth 4 -type f -name '*.apk' -print -quit)"
           fi
-
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-
-          echo "Android SDK: $ANDROID_HOME"
-          test -d "$ANDROID_HOME"
-
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1 || true)"
-          fi
-
-          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
-            echo "::error::sdkmanager niet gevonden in de voorgeinstalleerde Android SDK."
+          if [ -z "$APK" ]; then
+            echo "::error::Geen APK gevonden na Godot-CI export."
             exit 1
           fi
-
-          echo "sdkmanager: $SDKMANAGER"
-          "$SDKMANAGER" --version
-
-          # Exacte Android-toolchain voor Godot 4.4.
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER" --sdk_root="$ANDROID_HOME"             "platform-tools"             "build-tools;34.0.0"             "platforms;android-34"             "cmake;3.10.2.4988404"             "ndk;23.2.8568313"
-
-          test -x "$ANDROID_HOME/platform-tools/adb"
-          test -d "$ANDROID_HOME/build-tools/34.0.0"
-          test -d "$ANDROID_HOME/platforms/android-34"
-          test -d "$ANDROID_HOME/cmake/3.10.2.4988404"
-          test -d "$ANDROID_HOME/ndk/23.2.8568313"
-          echo "Android SDK voor Godot 4.4 gereed."
-
-      - name: Installeer Godot 4.4.1 + Android export templates
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq unzip wget
-          wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip -O godot.zip
-          unzip -q godot.zip
-          chmod +x Godot_v4.4.1-stable_linux.x86_64
-          sudo mv Godot_v4.4.1-stable_linux.x86_64 /usr/local/bin/godot
-
-          wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz -O templates.tpz
-          mkdir -p "$HOME/.local/share/godot/export_templates/4.4.1.stable"
-          rm -rf /tmp/godot_templates
-          mkdir -p /tmp/godot_templates
-          unzip -q templates.tpz -d /tmp/godot_templates
-          cp -r /tmp/godot_templates/templates/* "$HOME/.local/share/godot/export_templates/4.4.1.stable/"
-          godot --version
-
-      - name: Configureer Godot Android export
-        shell: bash
-        run: |
-          set -euo pipefail
-          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          JAVA_HOME_REAL="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
-          export JAVA_HOME="$JAVA_HOME_REAL"
-
-          test -x "$ANDROID_HOME/platform-tools/adb"
-          test -x "$JAVA_HOME/bin/java"
-
-          mkdir -p "$HOME/.config/godot"
-          mkdir -p "$HOME/.android"
-
-          # Maak expliciet een standaard Android debug-keystore.
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
+          if [ "$APK" != "./Dakdekker-Trainer-Bitumen-v1.5.apk" ]; then
+            cp "$APK" "Dakdekker-Trainer-Bitumen-v1.5.apk"
           fi
-
-          # Godot 4.4 gebruikt editor_settings-4.4.tres.
-          # Belangrijk: type=EditorSettings stond in eerdere versie niet expliciet goed.
-          cat > "$HOME/.config/godot/editor_settings-4.4.tres" <<EOF
-          [gd_resource type="EditorSettings" format=3]
-
-          [resource]
-          export/android/java_sdk_path = "$JAVA_HOME"
-          export/android/android_sdk_path = "$ANDROID_HOME"
-          export/android/debug_keystore = "$HOME/.android/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          export/android/force_system_user = false
-          export/android/timestamping_authority_url = ""
-          export/android/shutdown_adb_on_exit = true
-          EOF
-
-          echo "=== EditorSettings ==="
-          cat "$HOME/.config/godot/editor_settings-4.4.tres"
-          echo "=== Android ==="
-          "$ANDROID_HOME/platform-tools/adb" version
-          echo "=== Java ==="
-          java -version
-          echo "=== Keystore ==="
-          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
-          echo "Godot Android configuratie gereed."
-
-      - name: Importeer project
-        shell: bash
-        run: |
-          set -euo pipefail
-          godot --headless --path . --editor --quit-after 12 2>&1 | tee godot-import.log
-
-      - name: Bouw Android APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          JAVA_HOME_REAL="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
-          export JAVA_HOME="$JAVA_HOME_REAL"
-          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          export ANDROID_SDK_ROOT="$ANDROID_HOME"
-
-          echo "=== CONTROLE ==="
-          godot --version
-          java -version
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "JAVA_HOME=$JAVA_HOME"
-          ls -la "$HOME/.local/share/godot/export_templates/4.4.1.stable/"
-          echo "================"
-
-          set +e
-          godot --headless --verbose --path . --export-debug "Android" "Dakdekker-Trainer-Bitumen-v1.4.apk" 2>&1 | tee android-export.log
-          RESULT=${PIPESTATUS[0]}
-          set -e
-
-          if [ "$RESULT" -ne 0 ]; then
-            echo "::error::Godot Android export is mislukt. Volledige relevante meldingen:"
-            grep -Ei -C 4 "error|android|java|jdk|sdk|keystore|template|export" android-export.log || true
-            exit "$RESULT"
-          fi
-
-          test -s "Dakdekker-Trainer-Bitumen-v1.4.apk"
-          ls -lh "Dakdekker-Trainer-Bitumen-v1.4.apk"
+          test -s "Dakdekker-Trainer-Bitumen-v1.5.apk"
+          ls -lh "Dakdekker-Trainer-Bitumen-v1.5.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-Bitumen-v1.4-FIXED-APK
-          path: Dakdekker-Trainer-Bitumen-v1.4.apk
+          name: Dakdekker-Trainer-Bitumen-v1.5-APK
+          path: Dakdekker-Trainer-Bitumen-v1.5.apk
           if-no-files-found: error
           retention-days: 14
-
-      - name: Upload buildlog bij fout
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Dakdekker-Trainer-v1.4-buildlogs
-          path: |
-            godot-android-validation.log
-            godot-import.log
-            android-export.log
-          if-no-files-found: ignore
-          retention-days: 7
