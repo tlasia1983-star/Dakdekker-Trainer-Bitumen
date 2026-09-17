@@ -1,0 +1,461 @@
+name: Dakdekker Trainer Bitumen v1.0 APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Controleer menu en pictogram
+        shell: bash
+        run: |
+          set -e
+          test -f menu.jpg || { echo "::error::menu.jpg ontbreekt in de hoofdmap"; exit 1; }
+          test -f icon.png || { echo "::error::icon.png ontbreekt in de hoofdmap"; exit 1; }
+
+      - name: Maak Godot project
+        shell: bash
+        run: |
+          set -e
+          cat > project.godot <<'EOF'
+          [application]
+          config/name="Dakdekker Trainer - Bitumen"
+          config/description="Interactieve Nederlandstalige 3D trainer voor beginnende bitumineuze dakdekkers."
+          run/main_scene="res://main.tscn"
+          config/icon="res://icon.png"
+
+          [display]
+          window/size/viewport_width=1280
+          window/size/viewport_height=720
+          window/size/window_width_override=1280
+          window/size/window_height_override=720
+          window/stretch/mode="canvas_items"
+          window/handheld/orientation=0
+
+          [rendering]
+          renderer/rendering_method="gl_compatibility"
+          renderer/rendering_method.mobile="gl_compatibility"
+          textures/default_filters/use_nearest_mipmap_filter=false
+
+          [input]
+          vooruit={"deadzone":0.25,"events":[Object(InputEventKey,"physical_keycode":87)]}
+          achteruit={"deadzone":0.25,"events":[Object(InputEventKey,"physical_keycode":83)]}
+          links={"deadzone":0.25,"events":[Object(InputEventKey,"physical_keycode":65)]}
+          rechts={"deadzone":0.25,"events":[Object(InputEventKey,"physical_keycode":68)]}
+          EOF
+
+          cat > main.tscn <<'EOF'
+          [gd_scene load_steps=2 format=3]
+
+          [ext_resource path="res://main.gd" type="Script" id="1"]
+
+          [node name="DakdekkerTrainer" type="Node"]
+          script = ExtResource("1")
+          EOF
+
+          cat > main.gd <<'EOF'
+          extends Node
+
+          const VERSION := "v1.0"
+          const ORANGE := Color("#ff6b00")
+          const DARK := Color("#111820")
+          const PANEL := Color("#18212b")
+          const GOOD := Color("#38c978")
+          const WARN := Color("#ffc247")
+
+          var root_ui: Control
+          var page: Control
+          var toast: Label
+          var score := 0
+          var completed: Dictionary = {}
+          var current_lesson := ""
+          var lesson_step := 0
+          var quiz_index := 0
+          var quiz_score := 0
+
+          var lessons := [
+              {"id":"basis","title":"1. Start op het dak","sub":"Veiligheid, materiaal en gereedschap","steps":[
+                  "Begin nooit met branden voordat de werkplek, ondergrond, materiaal en veiligheidsmaatregelen zijn gecontroleerd.",
+                  "Herken de dakopbouw: draagconstructie, dampscherm, isolatie, onderlaag en/of toplaag kunnen ieder een eigen functie hebben.",
+                  "Controleer de ondergrond: droog, schoon, vlak en geschikt voor het gekozen systeem. Volg altijd het projectsysteem en fabrikantvoorschrift.",
+                  "Leer de basisgereedschappen kennen: dakmes, rolmaat, krijtlijn, aandrukgereedschap, brander en geschikte persoonlijke beschermingsmiddelen.",
+                  "Open vuur vraagt extra brandveiligheidsmaatregelen. Een digitale training vervangt nooit praktijkbegeleiding."
+              ]},
+              {"id":"banen","title":"2. Banen branden","sub":"Uitrollen, uitlijnen, verwarmen en controleren","steps":[
+                  "Leg eerst het baanverloop vast. Werk systematisch en voorkom onnodige naden of ongunstige waterwegen.",
+                  "Rol de baan proef uit en lijn hem uit vÃ³Ã³rdat je gaat hechten. Corrigeren nadat een baan is vastgebrand is veel moeilijker.",
+                  "Verwarm gecontroleerd volgens het materiaal- en systeemvoorschrift. De app leert het principe; exacte verwerkingstemperatuur en details zijn productafhankelijk.",
+                  "Werk de baan gelijkmatig aan en controleer de volledige hechting en naad. Een visueel mooie naad is niet automatisch een goede verbinding.",
+                  "Controleer het resultaat op plooien, open naden, beschadiging en plaatsen waar water kan blijven staan."
+              ]},
+              {"id":"binnenhoek","title":"3. Binnenhoek","sub":"Laagopbouw, snijlijnen en waterwegen","steps":[
+                  "Analyseer eerst welke vlakken samenkomen: dakvlak, opstand en hoek. Bepaal vÃ³Ã³r het snijden hoe de lagen elkaar gaan overlappen.",
+                  "Voorkom een open waterweg in het hoekpunt. Hoekdetails worden laag voor laag opgebouwd; willekeurig insnijden is geen betrouwbare methode.",
+                  "Breng de voorgeschreven versterking, onderlaag of hoekopbouw aan volgens het gekozen daksysteem.",
+                  "Werk de opstandstroken zonder ongecontroleerde plooien af en controleer iedere overgang.",
+                  "Doe de waterwegcontrole: volg denkbeeldig regenwater over alle overlappen. Het water mag nergens onder een laag kunnen lopen."
+              ]},
+              {"id":"buitenhoek","title":"4. Buitenhoek","sub":"Versterken, vormen en overlappen","steps":[
+                  "Een buitenhoek wordt mechanisch en thermisch zwaarder belast dan een vlak stuk dak. Begin daarom met een duidelijke laagvolgorde.",
+                  "Snijd alleen volgens het voorgeschreven detail. Een te diepe of verkeerd geplaatste snede kan een directe lekkageroute maken.",
+                  "Vorm het materiaal strak rond de hoek zonder ontoelaatbare spanning of holle ruimtes.",
+                  "Breng de volgende detailstroken aan zodat naden en sneden veilig worden afgedekt.",
+                  "Controleer rondom de hoek: hechting, naadsluiting, beschadiging en waterweg."
+              ]},
+              {"id":"mastiek","title":"5. Mastiekhoek","sub":"Hoekondersteuning en aansluiting","steps":[
+                  "Controleer eerst welk detail het gekozen dakbedekkingssysteem voorschrijft. Niet ieder systeem gebruikt dezelfde hoekopbouw.",
+                  "De hoek moet een stabiele, doorlopende ondersteuning voor de afdichting vormen.",
+                  "Zorg dat de afdichting zonder schadelijke spanning of holle ruimte over de overgang kan worden verwerkt.",
+                  "Werk opstand en dakvlak in de voorgeschreven volgorde af.",
+                  "Controleer de volledige aansluiting en leg afwijkingen ten opzichte van fabrikant- of projectdetails vast."
+              ]},
+              {"id":"afvoer","title":"6. Hemelwaterafvoer","sub":"Plakplaat, lagen en waterdichte aansluiting","steps":[
+                  "Een afvoer is een kritisch detail: water wordt hier bewust naartoe geleid. Controleer afschot, positie en aansluiting voordat je begint.",
+                  "Bij een bitumineuze opbouw kan een extra strook of onderlaag worden gebruikt om de plakplaat in te werken; de exacte opbouw volgt het gekozen systeem.",
+                  "Plaats en bevestig de afvoer/plakplaat volgens ontwerp en fabrikantvoorschrift. Houd rekening met een verzonken aansluiting waar het detail dit vereist.",
+                  "Werk de dakafdichting waterdicht op de plakplaat in. Voorkom opstaande randen die waterstagnatie veroorzaken.",
+                  "Controleer de afvoer vrij van materiaalresten en voer een visuele waterwegcontrole uit."
+              ]},
+              {"id":"doorvoer","title":"7. Dakdoorvoer","sub":"Plakplaat, vormstuk en afdichting","steps":[
+                  "Bepaal eerst type doorvoer, temperatuur, beweging en systeem. Niet iedere doorvoer mag op dezelfde manier worden ingewerkt.",
+                  "Maak de opening gecontroleerd en voorkom onnodige beschadiging van dampscherm, isolatie en dakafdichting.",
+                  "Een metalen hulpstuk met plakplaat kan onderdeel van het detail zijn. Bevestiging en materiaalcompatibiliteit zijn systeemafhankelijk.",
+                  "Werk een passend afdichtings- of vormstuk rondom de doorvoer aan en voorkom plekken waar water kan blijven staan.",
+                  "Controleer aansluiting, mechanische bevestiging, luchtdichtheid waar vereist en de vrije ruimte rondom warme doorvoeren."
+              ]},
+              {"id":"schoorsteen","title":"8. Schoorsteen","sub":"Voorzijde, zijkanten, achterzijde en brandveiligheid","steps":[
+                  "Beoordeel eerst het rookkanaal: temperatuurklasse en vereiste afstand tot brandbare materialen bepalen mede de veilige opbouw.",
+                  "Controleer dakopbouw en eventuele onbrandbare isolatie rondom het kanaal. Volg de projectspecificatie en voorschriften van het rookgasafvoersysteem.",
+                  "Werk de aansluiting rondom systematisch af. Besteed extra aandacht aan de hooggelegen zijde waar water zich kan ophopen.",
+                  "Gebruik alleen materialen die geschikt zijn voor de temperatuur en onderlinge aansluiting.",
+                  "Controleer na afloop waterdichtheid Ã©n brandveiligheid; dit zijn twee afzonderlijke controles."
+              ]},
+              {"id":"trim","title":"9. Daktrim en dakrand","sub":"Monteren en waterkerend inwerken","steps":[
+                  "Controleer ondergrond, randopbouw en maatvoering voordat de trim of metalen randafwerking wordt gemonteerd.",
+                  "Werk rechte lijnen en nette aansluitingen uit; houd rekening met verbindingen en materiaalbeweging.",
+                  "Bevestig volgens het gekozen trimsysteem. De juiste h.o.h.-afstand en bevestiger zijn product- en ondergrondafhankelijk.",
+                  "Werk de bitumineuze afdichting en randstroken volgens het voorgeschreven detail in.",
+                  "Controleer hoeken, verbindingen, bevestigingen en de volledige waterkerende lijn."
+              ]}
+          ]
+
+          var quiz := [
+              ["Wat doe je vÃ³Ã³r het branden van een baan?",["Meteen de brander vol open","Baan proef uitrollen en uitlijnen","Eerst de naad opensnijden"],1],
+              ["Waarom controleer je een hoek op waterwegen?",["Om de kleur te beoordelen","Om te zien of water onder een overlap kan komen","Alleen voor de maatvoering"],1],
+              ["Welk detail vraagt extra aandacht omdat water er bewust naartoe stroomt?",["HWA / dakafvoer","Een krijtlijn","Een gereedschapskist"],0],
+              ["Mag je Ã©Ã©n universele snijmethode voor elk merk en systeem gebruiken?",["Ja","Nee, detail en fabrikantvoorschrift zijn bepalend","Alleen bij koud weer"],1],
+              ["Wat controleer je bij een schoorsteen naast waterdichtheid?",["Alleen de kleur","Brandveiligheid en temperatuurgeschiktheid","De wifi-sterkte"],1],
+              ["Wat is voor een beginner de juiste houding tegenover open vuur?",["Zonder begeleiding oefenen","Eerst veiligheid en praktijkbegeleiding","Zo snel mogelijk werken"],1]
+          ]
+
+          func _ready() -> void:
+              load_progress()
+              build_shell()
+              show_menu()
+
+          func build_shell() -> void:
+              root_ui = Control.new()
+              root_ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+              add_child(root_ui)
+
+              var bg := TextureRect.new()
+              bg.texture = load("res://menu.jpg")
+              bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+              bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+              bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+              root_ui.add_child(bg)
+
+              var shade := ColorRect.new()
+              shade.color = Color(0.02,0.03,0.04,0.42)
+              shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+              root_ui.add_child(shade)
+
+              page = Control.new()
+              page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+              root_ui.add_child(page)
+
+              toast = Label.new()
+              toast.position = Vector2(25,670)
+              toast.size = Vector2(1230,38)
+              toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+              toast.add_theme_font_size_override("font_size",18)
+              root_ui.add_child(toast)
+
+          func clear_page() -> void:
+              for c in page.get_children():
+                  c.queue_free()
+
+          func panel(rect: Rect2, alpha:=0.94) -> ColorRect:
+              var p:=ColorRect.new()
+              p.position=rect.position
+              p.size=rect.size
+              p.color=Color(PANEL.r,PANEL.g,PANEL.b,alpha)
+              page.add_child(p)
+              return p
+
+          func label(text:String,pos:Vector2,size:Vector2,font_size:=24,color:=Color.WHITE) -> Label:
+              var l:=Label.new()
+              l.text=text
+              l.position=pos
+              l.size=size
+              l.add_theme_font_size_override("font_size",font_size)
+              l.add_theme_color_override("font_color",color)
+              l.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+              page.add_child(l)
+              return l
+
+          func button(text:String,rect:Rect2,call:Callable) -> Button:
+              var b:=Button.new()
+              b.text=text
+              b.position=rect.position
+              b.size=rect.size
+              b.add_theme_font_size_override("font_size",22)
+              b.pressed.connect(call)
+              page.add_child(b)
+              return b
+
+          func show_menu() -> void:
+              clear_page()
+              label("DAKDEKKER TRAINER",Vector2(45,28),Vector2(700,55),38)
+              label("BITUMEN  â€¢  "+VERSION,Vector2(48,75),Vector2(500,36),20,ORANGE)
+              panel(Rect2(50,140,470,490),0.90)
+              var items=[
+                  ["LEREN","Van nul ervaring naar de basis",show_lessons],
+                  ["3D OEFENEN","Interactieve oefendaken",show_3d],
+                  ["DETAILS","Stap voor stap dakdetails",show_lessons],
+                  ["FOUTEN ZOEKEN","Leer lekkagerisico's herkennen",show_faults],
+                  ["TOETSEN","Test je basiskennis",start_quiz],
+                  ["VAKMAN-MODUS","Oefenen zonder stap-voor-stap hulp",show_vakman]
+              ]
+              for i in range(items.size()):
+                  var y=158+i*73
+                  button(items[i][0]+"  â€º",Rect2(70,y,430,52),items[i][2])
+                  label(items[i][1],Vector2(78,y+49),Vector2(410,22),13,Color("#c8d0d8"))
+              label("Voortgang: %d/%d lessen" % [completed.size(),lessons.size()],Vector2(875,625),Vector2(350,30),18)
+
+          func show_lessons() -> void:
+              clear_page()
+              panel(Rect2(35,25,1210,650),0.96)
+              label("LEERPAD â€¢ VANAF 0 ERVARING",Vector2(65,45),Vector2(850,45),30)
+              label("Volg de lessen op volgorde. De app leert principes; werk op een echt dak altijd onder begeleiding en volgens het actuele systeemvoorschrift.",Vector2(65,92),Vector2(1100,55),17,WARN)
+              for i in range(lessons.size()):
+                  var col=i%2
+                  var row=i/2
+                  var r=Rect2(70+col*570,165+row*88,535,64)
+                  var mark="âœ“ " if completed.has(lessons[i].id) else ""
+                  button(mark+lessons[i].title+"\n"+lessons[i].sub,r,func(idx=i): open_lesson(idx))
+              button("â€¹ TERUG",Rect2(65,620,160,42),show_menu)
+
+          func open_lesson(index:int) -> void:
+              current_lesson=lessons[index].id
+              lesson_step=0
+              show_lesson_step()
+
+          func show_lesson_step() -> void:
+              clear_page()
+              var lesson={}
+              for l in lessons:
+                  if l.id==current_lesson: lesson=l
+              panel(Rect2(70,60,1140,570),0.96)
+              label(lesson.title,Vector2(105,90),Vector2(950,45),32)
+              label(lesson.sub,Vector2(105,137),Vector2(950,30),18,ORANGE)
+              label("STAP %d VAN %d" % [lesson_step+1,lesson.steps.size()],Vector2(105,195),Vector2(300,30),17,WARN)
+              label(lesson.steps[lesson_step],Vector2(105,245),Vector2(1040,190),27)
+              label("Denk vÃ³Ã³r je handelt: ondergrond â†’ laagopbouw â†’ detail â†’ waterweg â†’ eindcontrole.",Vector2(105,465),Vector2(1000,55),18,Color("#b8c2cc"))
+              button("â€¹ VORIGE",Rect2(105,545,190,52),prev_step)
+              if lesson_step < lesson.steps.size()-1:
+                  button("VOLGENDE â€º",Rect2(940,545,200,52),next_step)
+              else:
+                  button("LES AFRONDEN âœ“",Rect2(880,545,260,52),finish_lesson)
+
+          func next_step(): lesson_step+=1; show_lesson_step()
+          func prev_step():
+              if lesson_step>0: lesson_step-=1; show_lesson_step()
+              else: show_lessons()
+          func finish_lesson():
+              completed[current_lesson]=true
+              score+=100
+              save_progress()
+              notify("Les afgerond â€¢ +100 punten")
+              show_lessons()
+
+          func show_3d() -> void:
+              clear_page()
+              panel(Rect2(45,35,1190,630),0.95)
+              label("3D OEFENDAK",Vector2(75,55),Vector2(600,45),32)
+              label("Kies een oefening. Deze v1.0 bevat een interactieve laagopbouw-simulator; uitgebreid vrij snijden/branden volgt in de volgende praktijkversie.",Vector2(75,105),Vector2(1080,55),18,WARN)
+              var names=["Banen branden","Binnenhoek","Buitenhoek","HWA / afvoer","Dakdoorvoer","Schoorsteen","Daktrim"]
+              for i in range(names.size()):
+                  var x=80+(i%3)*370; var y=190+(i/3)*110
+                  button(names[i],Rect2(x,y,330,72),func(n=names[i]): open_sim(n))
+              button("â€¹ TERUG",Rect2(75,600,160,42),show_menu)
+
+          func open_sim(name:String) -> void:
+              clear_page()
+              panel(Rect2(35,25,1210,650),0.97)
+              label("PRAKTIJKSIMULATOR â€¢ "+name.to_upper(),Vector2(65,50),Vector2(1050,42),29)
+              label("Tik de werkzaamheden in een logische volgorde aan.",Vector2(65,100),Vector2(900,32),18,WARN)
+              var steps=["1  Werkplek & veiligheid controleren","2  Ondergrond en systeem controleren","3  Detail uitmeten en proefpassen","4  Lagen in juiste volgorde verwerken","5  Naden / aansluitingen controleren","6  Waterweg- en eindcontrole"]
+              for i in range(steps.size()):
+                  button(steps[i],Rect2(90,165+i*65,760,50),func(idx=i): sim_pick(idx))
+              label("DOEL",Vector2(900,175),Vector2(250,30),20,ORANGE)
+              label("Werk rustig en systematisch.\n\nOp een echt dak:\nâ€¢ volg projectdetails\nâ€¢ volg fabrikantvoorschriften\nâ€¢ gebruik passende PBM\nâ€¢ open vuur alleen veilig en onder bevoegd toezicht",Vector2(900,215),Vector2(270,270),18)
+              button("â€¹ OEFENINGEN",Rect2(65,610,210,42),show_3d)
+
+          var expected_sim_step:=0
+          func sim_pick(idx:int):
+              if idx==expected_sim_step:
+                  expected_sim_step+=1
+                  notify("Goed â€¢ stap %d klopt" % (idx+1))
+                  if expected_sim_step>=6:
+                      score+=150; expected_sim_step=0; save_progress(); notify("Oefening afgerond â€¢ +150 punten")
+              else:
+                  notify("Nog niet. Controleer eerst de voorgaande stap.")
+
+          func show_faults() -> void:
+              clear_page()
+              panel(Rect2(80,70,1120,550),0.96)
+              label("FOUTEN ZOEKEN",Vector2(110,95),Vector2(500,45),32)
+              label("Situatie: bij een dakdoorvoer blijft water tegen de plakplaat staan en een aansluiting is niet volledig gesloten.",Vector2(110,165),Vector2(950,70),23)
+              button("A  Alleen extra mastiek erop",Rect2(120,285,480,60),func(): fault_answer(false))
+              button("B  Detail openen, oorzaak/waterweg beoordelen en correct herstellen",Rect2(120,365,850,60),func(): fault_answer(true))
+              button("C  Niets doen zolang het niet regent",Rect2(120,445,550,60),func(): fault_answer(false))
+              button("â€¹ TERUG",Rect2(110,555,160,42),show_menu)
+
+          func fault_answer(ok:bool):
+              if ok: notify("Juist: zoek de oorzaak en herstel volgens het systeemdetail.")
+              else: notify("Niet juist: symptoombestrijding vervangt geen correcte detailopbouw.")
+
+          func start_quiz():
+              quiz_index=0; quiz_score=0; show_quiz()
+
+          func show_quiz():
+              clear_page()
+              if quiz_index>=quiz.size():
+                  panel(Rect2(250,160,780,360),0.97)
+                  label("TOETS KLAAR",Vector2(300,205),Vector2(600,45),34)
+                  label("Score: %d van %d" % [quiz_score,quiz.size()],Vector2(300,275),Vector2(600,45),28,ORANGE)
+                  label("Een goede score betekent dat je de digitale basis begrijpt. Het maakt je nog geen zelfstandig dakdekker: praktijkbegeleiding blijft noodzakelijk.",Vector2(300,340),Vector2(650,90),19)
+                  button("NAAR MENU",Rect2(300,455,220,50),show_menu)
+                  return
+              panel(Rect2(100,80,1080,540),0.97)
+              label("KENNISTOETS â€¢ VRAAG %d/%d" % [quiz_index+1,quiz.size()],Vector2(135,110),Vector2(700,40),26)
+              label(quiz[quiz_index][0],Vector2(135,175),Vector2(900,70),25)
+              for i in range(3):
+                  button(quiz[quiz_index][1][i],Rect2(150,285+i*80,850,58),func(idx=i): quiz_answer(idx))
+              button("STOP",Rect2(135,565,150,40),show_menu)
+
+          func quiz_answer(idx:int):
+              if idx==quiz[quiz_index][2]:
+                  quiz_score+=1; score+=25; notify("Goed antwoord")
+              else: notify("Niet juist â€¢ lees de bijbehorende les nog eens")
+              quiz_index+=1; save_progress(); show_quiz()
+
+          func show_vakman():
+              clear_page()
+              panel(Rect2(100,90,1080,520),0.96)
+              label("VAKMAN-MODUS",Vector2(135,120),Vector2(700,45),32)
+              label("Opdracht: beoordeel een plat dak met een HWA, buitenhoek, doorvoer en dakrand. Noteer voor ieder detail: laagopbouw, mogelijke waterweg, materiaalcompatibiliteit, brandveiligheid en eindcontrole.",Vector2(135,195),Vector2(900,130),23)
+              label("Deze modus geeft bewust geen uitvoeringsmaten of universele snijpatronen: die moeten uit het actuele project-, fabrikant- of richtlijndetail komen.",Vector2(135,355),Vector2(900,90),19,WARN)
+              button("DETAILLESSEN",Rect2(135,500,250,52),show_lessons)
+              button("â€¹ MENU",Rect2(410,500,180,52),show_menu)
+
+          func notify(t:String):
+              toast.text=t
+              var tw=get_tree().create_timer(3.0)
+              tw.timeout.connect(func(): if toast: toast.text="")
+
+          func save_progress():
+              var f=FileAccess.open("user://progress.json",FileAccess.WRITE)
+              if f: f.store_string(JSON.stringify({"score":score,"completed":completed}))
+
+          func load_progress():
+              if FileAccess.file_exists("user://progress.json"):
+                  var f=FileAccess.open("user://progress.json",FileAccess.READ)
+                  var d=JSON.parse_string(f.get_as_text())
+                  if typeof(d)==TYPE_DICTIONARY:
+                      score=int(d.get("score",0))
+                      completed=d.get("completed",{})
+          EOF
+
+          cat > export_presets.cfg <<'EOF'
+          [preset.0]
+          name="Android"
+          platform="Android"
+          runnable=true
+          advanced_options=false
+          dedicated_server=false
+          custom_features=""
+          export_filter="all_resources"
+          include_filter=""
+          exclude_filter=""
+          export_path="Dakdekker-Trainer-Bitumen-v1.0.apk"
+          encryption_include_filters=""
+          encryption_exclude_filters=""
+          encrypt_pck=false
+          encrypt_directory=false
+
+          [preset.0.options]
+          custom_template/debug=""
+          custom_template/release=""
+          gradle_build/use_gradle_build=false
+          architectures/armeabi-v7a=true
+          architectures/arm64-v8a=true
+          package/unique_name="com.dakdekkertrainer.bitumen"
+          package/name="Dakdekker Trainer"
+          package/signed=true
+          version/code=100
+          version/name="1.0"
+          screen/immersive_mode=true
+          screen/support_small=true
+          screen/support_normal=true
+          screen/support_large=true
+          screen/support_xlarge=true
+          launcher_icons/main_192x192="res://icon.png"
+          launcher_icons/adaptive_foreground_432x432="res://icon.png"
+          EOF
+
+      - name: Installeer Godot 4.4.1 + Android export templates
+        shell: bash
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip wget
+          wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip -O godot.zip
+          unzip -q godot.zip
+          chmod +x Godot_v4.4.1-stable_linux.x86_64
+          sudo mv Godot_v4.4.1-stable_linux.x86_64 /usr/local/bin/godot
+          wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz -O templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.4.1.stable"
+          unzip -q templates.tpz -d /tmp/godot_templates
+          cp -r /tmp/godot_templates/templates/* "$HOME/.local/share/godot/export_templates/4.4.1.stable/"
+
+      - name: Parse- en projectcontrole
+        shell: bash
+        run: |
+          set -e
+          godot --headless --path . --editor --quit-after 8
+
+      - name: Bouw Android APK
+        shell: bash
+        run: |
+          set -e
+          godot --headless --path . --export-debug Android Dakdekker-Trainer-Bitumen-v1.0.apk
+          test -f Dakdekker-Trainer-Bitumen-v1.0.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dakdekker-Trainer-Bitumen-v1.0-APK
+          path: Dakdekker-Trainer-Bitumen-v1.0.apk
+          if-no-files-found: error
+          retention-days: 14
