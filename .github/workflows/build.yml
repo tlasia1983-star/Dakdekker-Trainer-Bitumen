@@ -1,4 +1,4 @@
-name: Dakdekker Trainer Bitumen v1.5 GODOT-CI APK
+name: Dakdekker Trainer Bitumen v1.6 DOCKER FIXED APK
 
 on:
   workflow_dispatch:
@@ -8,7 +8,9 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.4.1
     timeout-minutes: 30
 
     steps:
@@ -65,7 +67,7 @@ jobs:
           cat > main.gd <<'EOF'
           extends Node
 
-          const VERSION := "v1.5"
+          const VERSION := "v1.6"
           const ORANGE := Color("#ff6b00")
           const DARK := Color("#111820")
           const PANEL := Color("#18212b")
@@ -389,7 +391,7 @@ jobs:
 
           cat > export_presets.cfg <<'EOF'
           [preset.0]
-          name="Android"
+          name="Android Debug"
           platform="Android"
           runnable=true
           advanced_options=false
@@ -398,7 +400,7 @@ jobs:
           export_filter="all_resources"
           include_filter=""
           exclude_filter=""
-          export_path="Dakdekker-Trainer-Bitumen-v1.0.apk"
+          export_path="build/android/Dakdekker-Trainer-Bitumen-v1.6.apk"
           encryption_include_filters=""
           encryption_exclude_filters=""
           encrypt_pck=false
@@ -408,55 +410,84 @@ jobs:
           custom_template/debug=""
           custom_template/release=""
           gradle_build/use_gradle_build=false
-          architectures/armeabi-v7a=true
+          architectures/armeabi-v7a=false
           architectures/arm64-v8a=true
           package/unique_name="com.dakdekkertrainer.bitumen"
-          package/name="Dakdekker Trainer"
-          package/signed=true
-          version/code=150
-          version/name="1.5"
+          package/name="Dakdekker Trainer Bitumen"
+          version/code=160
+          version/name="1.6"
           screen/immersive_mode=true
-          screen/support_small=true
-          screen/support_normal=true
-          screen/support_large=true
-          screen/support_xlarge=true
-          launcher_icons/main_192x192="res://icon.png"
-          launcher_icons/adaptive_foreground_432x432="res://icon.png"
           EOF
 
-      - name: Bouw APK met Godot-CI
-        uses: abarichello/godot-ci@4.6.3
-        with:
-          godot_version: '4.4.1'
-          version_status: 'stable'
-          build_type: 'debug'
-          export_preset: 'Android'
-          export_path: 'Dakdekker-Trainer-Bitumen-v1.5.apk'
 
-      - name: Controleer APK
+      - name: Configureer Godot-CI
         shell: bash
         run: |
           set -euo pipefail
-          echo "Zoeken naar gebouwde APK..."
-          find . -maxdepth 4 -type f -name '*.apk' -print
-          APK="$(find . -maxdepth 4 -type f -name 'Dakdekker-Trainer-Bitumen-v1.5.apk' -print -quit)"
-          if [ -z "$APK" ]; then
-            APK="$(find . -maxdepth 4 -type f -name '*.apk' -print -quit)"
+          echo "Godot:"
+          godot --version
+          echo "Android SDK: ${ANDROID_HOME:-niet ingesteld}"
+
+          mkdir -p "$HOME/.local/share/godot/export_templates"
+          mkdir -p "$HOME/.config"
+
+          # Exact dezelfde setupmethode als het officiÃ«le godot-ci GitHub Actions voorbeeld.
+          if [ -d "/root/.config/godot" ]; then
+            rm -rf "$HOME/.config/godot"
+            mv /root/.config/godot "$HOME/.config/godot"
           fi
-          if [ -z "$APK" ]; then
-            echo "::error::Geen APK gevonden na Godot-CI export."
-            exit 1
+
+          if [ -d "/root/.local/share/godot/export_templates/4.4.1.stable" ]; then
+            rm -rf "$HOME/.local/share/godot/export_templates/4.4.1.stable"
+            mv /root/.local/share/godot/export_templates/4.4.1.stable \
+               "$HOME/.local/share/godot/export_templates/4.4.1.stable"
           fi
-          if [ "$APK" != "./Dakdekker-Trainer-Bitumen-v1.5.apk" ]; then
-            cp "$APK" "Dakdekker-Trainer-Bitumen-v1.5.apk"
-          fi
-          test -s "Dakdekker-Trainer-Bitumen-v1.5.apk"
-          ls -lh "Dakdekker-Trainer-Bitumen-v1.5.apk"
+
+          echo "Templates:"
+          ls -la "$HOME/.local/share/godot/export_templates/4.4.1.stable"
+
+          echo "Android-configuratie:"
+          find "$HOME/.config/godot" -maxdepth 1 -type f -print || true
+          test -n "${ANDROID_HOME:-}"
+          test -d "$ANDROID_HOME"
+
+      - name: Importeer en controleer project
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --editor --path . --quit-after 5 2>&1 | tee godot-import.log
+
+      - name: Bouw Android APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/android
+          EXPORT_DIR="$(readlink -f build/android)"
+          echo "Export naar: $EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.6.apk"
+
+          godot --headless --verbose --path . \
+            --export-debug "Android Debug" \
+            "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.6.apk" \
+            2>&1 | tee android-export.log
+
+          test -s "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.6.apk"
+          ls -lh "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.6.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-Bitumen-v1.5-APK
-          path: Dakdekker-Trainer-Bitumen-v1.5.apk
+          name: Dakdekker-Trainer-Bitumen-v1.6-APK
+          path: build/android/Dakdekker-Trainer-Bitumen-v1.6.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload logs bij fout
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dakdekker-Trainer-Bitumen-v1.6-buildlogs
+          path: |
+            godot-import.log
+            android-export.log
+          if-no-files-found: ignore
+          retention-days: 7
