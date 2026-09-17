@@ -1,4 +1,4 @@
-name: Dakdekker Trainer Bitumen v1.3 FIXED APK
+name: Dakdekker Trainer Bitumen v1.4 FIXED APK
 
 on:
   workflow_dispatch:
@@ -65,7 +65,7 @@ jobs:
           cat > main.gd <<'EOF'
           extends Node
 
-          const VERSION := "v1.3"
+          const VERSION := "v1.4"
           const ORANGE := Color("#ff6b00")
           const DARK := Color("#111820")
           const PANEL := Color("#18212b")
@@ -412,9 +412,9 @@ jobs:
           architectures/arm64-v8a=true
           package/unique_name="com.dakdekkertrainer.bitumen"
           package/name="Dakdekker Trainer"
-          package/signed=true
-          version/code=130
-          version/name="1.3"
+          package/signed=false
+          version/code=140
+          version/name="1.4"
           screen/immersive_mode=true
           screen/support_small=true
           screen/support_normal=true
@@ -499,7 +499,7 @@ jobs:
           cp -r /tmp/godot_templates/templates/* "$HOME/.local/share/godot/export_templates/4.4.1.stable/"
           godot --version
 
-      - name: Configureer en valideer Godot Android
+      - name: Configureer Godot Android export
         shell: bash
         run: |
           set -euo pipefail
@@ -508,50 +508,50 @@ jobs:
           JAVA_HOME_REAL="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
           export JAVA_HOME="$JAVA_HOME_REAL"
 
-          echo "Android SDK: $ANDROID_HOME"
-          echo "Java SDK:    $JAVA_HOME"
-          java -version
-          "$ANDROID_HOME/platform-tools/adb" version
-          test -x "$JAVA_HOME/bin/java"
           test -x "$ANDROID_HOME/platform-tools/adb"
+          test -x "$JAVA_HOME/bin/java"
 
-          # Laat Godot eerst zelf zijn echte EditorSettings-bestand aanmaken.
-          timeout 15s godot --headless --editor --path . --quit-after 2 >/tmp/godot-init.log 2>&1 || true
+          mkdir -p "$HOME/.config/godot"
+          mkdir -p "$HOME/.android"
 
-          SETTINGS_FILE="$(find "$HOME/.config/godot" -maxdepth 1 -type f -name 'editor_settings-4*.tres' | head -n 1 || true)"
-          if [ -z "$SETTINGS_FILE" ]; then
-            echo "::error::Godot EditorSettings-bestand is niet aangemaakt."
-            cat /tmp/godot-init.log || true
-            exit 1
+          # Maak expliciet een standaard Android debug-keystore.
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          echo "Editor settings: $SETTINGS_FILE"
+          # Godot 4.4 gebruikt editor_settings-4.4.tres.
+          # Belangrijk: type=EditorSettings stond in eerdere versie niet expliciet goed.
+          cat > "$HOME/.config/godot/editor_settings-4.4.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
 
-          # Pas alleen de twee officiÃ«le Android-paden aan in het door Godot
-          # aangemaakte bestand. Zo behouden we het correcte Godot-formaat.
-          python3 - "$SETTINGS_FILE" "$ANDROID_HOME" "$JAVA_HOME" <<'PY'
-          import sys, re
-          p, android, java = sys.argv[1:]
-          s = open(p, encoding="utf-8").read()
+          [resource]
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          export/android/force_system_user = false
+          export/android/timestamping_authority_url = ""
+          export/android/shutdown_adb_on_exit = true
+          EOF
 
-          def put(text, key, value):
-              line = f'{key} = "{value}"'
-              pat = rf'(?m)^{re.escape(key)}\\s*=.*$'
-              if re.search(pat, text):
-                  return re.sub(pat, line, text)
-              # EditorSettings files are resource files; append property.
-              return text.rstrip() + "\\n" + line + "\\n"
-
-          s = put(s, "export/android/android_sdk_path", android)
-          s = put(s, "export/android/java_sdk_path", java)
-          open(p, "w", encoding="utf-8").write(s)
-          PY
-
-          grep -E 'export/android/(android_sdk_path|java_sdk_path)' "$SETTINGS_FILE"
-
-          echo "=== GODOT ANDROID VALIDATIE ==="
-          godot --headless --verbose --editor --path . --quit-after 3 2>&1 | tee godot-android-validation.log
-          echo "================================"
+          echo "=== EditorSettings ==="
+          cat "$HOME/.config/godot/editor_settings-4.4.tres"
+          echo "=== Android ==="
+          "$ANDROID_HOME/platform-tools/adb" version
+          echo "=== Java ==="
+          java -version
+          echo "=== Keystore ==="
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
+          echo "Godot Android configuratie gereed."
 
       - name: Importeer project
         shell: bash
@@ -577,7 +577,7 @@ jobs:
           echo "================"
 
           set +e
-          godot --headless --verbose --path . --export-debug "Android" "Dakdekker-Trainer-Bitumen-v1.3.apk" 2>&1 | tee android-export.log
+          godot --headless --verbose --path . --export-debug "Android" "Dakdekker-Trainer-Bitumen-v1.4.apk" 2>&1 | tee android-export.log
           RESULT=${PIPESTATUS[0]}
           set -e
 
@@ -587,14 +587,14 @@ jobs:
             exit "$RESULT"
           fi
 
-          test -s "Dakdekker-Trainer-Bitumen-v1.3.apk"
-          ls -lh "Dakdekker-Trainer-Bitumen-v1.3.apk"
+          test -s "Dakdekker-Trainer-Bitumen-v1.4.apk"
+          ls -lh "Dakdekker-Trainer-Bitumen-v1.4.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-Bitumen-v1.3-FIXED-APK
-          path: Dakdekker-Trainer-Bitumen-v1.3.apk
+          name: Dakdekker-Trainer-Bitumen-v1.4-FIXED-APK
+          path: Dakdekker-Trainer-Bitumen-v1.4.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -602,7 +602,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-v1.3-buildlogs
+          name: Dakdekker-Trainer-v1.4-buildlogs
           path: |
             godot-android-validation.log
             godot-import.log
