@@ -1,4 +1,4 @@
-name: Dakdekker Trainer Bitumen v1.1 FIXED APK
+name: Dakdekker Trainer Bitumen v1.2 FIXED APK
 
 on:
   workflow_dispatch:
@@ -65,7 +65,7 @@ jobs:
           cat > main.gd <<'EOF'
           extends Node
 
-          const VERSION := "v1.1"
+          const VERSION := "v1.2"
           const ORANGE := Color("#ff6b00")
           const DARK := Color("#111820")
           const PANEL := Color("#18212b")
@@ -413,8 +413,8 @@ jobs:
           package/unique_name="com.dakdekkertrainer.bitumen"
           package/name="Dakdekker Trainer"
           package/signed=true
-          version/code=110
-          version/name="1.1"
+          version/code=120
+          version/name="1.2"
           screen/immersive_mode=true
           screen/support_small=true
           screen/support_normal=true
@@ -430,18 +430,62 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Installeer Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Installeer Android pakketten
+      - name: Gebruik voorgeinstalleerde Android SDK
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.1"
-          echo "ANDROID_HOME=$ANDROID_HOME"
+
+          # GitHub ubuntu-latest bevat de Android SDK al.
+          # Gebruik die rechtstreeks in plaats van setup-android.
+          if [ -z "${ANDROID_HOME:-}" ]; then
+            if [ -d "/usr/local/lib/android/sdk" ]; then
+              echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+              echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+              ANDROID_HOME="/usr/local/lib/android/sdk"
+            else
+              echo "::error::Geen voorgeinstalleerde Android SDK gevonden."
+              exit 1
+            fi
+          else
+            echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          fi
+
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
+          echo "Android SDK: $ANDROID_HOME"
+          test -d "$ANDROID_HOME"
+
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1 || true)"
+          fi
+
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager niet gevonden in de voorgeinstalleerde Android SDK."
+            exit 1
+          fi
+
+          echo "sdkmanager: $SDKMANAGER"
+          "$SDKMANAGER" --version
+
+          # Godot 4.4 Android export. Installeer alleen wanneer onderdelen ontbreken.
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+
+          if [ ! -d "$ANDROID_HOME/platforms/android-35" ]; then
+            "$SDKMANAGER" "platforms;android-35"
+          fi
+
+          if [ ! -d "$ANDROID_HOME/build-tools/35.0.0" ] && [ ! -d "$ANDROID_HOME/build-tools/35.0.1" ]; then
+            "$SDKMANAGER" "build-tools;35.0.0"
+          fi
+
+          if [ ! -x "$ANDROID_HOME/platform-tools/adb" ]; then
+            "$SDKMANAGER" "platform-tools"
+          fi
+
           test -x "$ANDROID_HOME/platform-tools/adb"
-          java -version
+          echo "Android SDK gereed."
 
       - name: Installeer Godot 4.4.1 + Android export templates
         shell: bash
@@ -467,6 +511,7 @@ jobs:
         run: |
           set -euo pipefail
           JAVA_HOME_REAL="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+          ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           SETTINGS_DIR="$HOME/.config/godot"
           SETTINGS_FILE="$SETTINGS_DIR/editor_settings-4.4.tres"
           mkdir -p "$SETTINGS_DIR"
@@ -507,7 +552,7 @@ jobs:
           echo "================"
 
           set +e
-          godot --headless --verbose --path . --export-debug "Android" "Dakdekker-Trainer-Bitumen-v1.1.apk" 2>&1 | tee android-export.log
+          godot --headless --verbose --path . --export-debug "Android" "Dakdekker-Trainer-Bitumen-v1.2.apk" 2>&1 | tee android-export.log
           RESULT=${PIPESTATUS[0]}
           set -e
 
@@ -517,14 +562,14 @@ jobs:
             exit "$RESULT"
           fi
 
-          test -s "Dakdekker-Trainer-Bitumen-v1.1.apk"
-          ls -lh "Dakdekker-Trainer-Bitumen-v1.1.apk"
+          test -s "Dakdekker-Trainer-Bitumen-v1.2.apk"
+          ls -lh "Dakdekker-Trainer-Bitumen-v1.2.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-Bitumen-v1.1-FIXED-APK
-          path: Dakdekker-Trainer-Bitumen-v1.1.apk
+          name: Dakdekker-Trainer-Bitumen-v1.2-FIXED-APK
+          path: Dakdekker-Trainer-Bitumen-v1.2.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -532,7 +577,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-v1.1-buildlogs
+          name: Dakdekker-Trainer-v1.2-buildlogs
           path: |
             godot-import.log
             android-export.log
