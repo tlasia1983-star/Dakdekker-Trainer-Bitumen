@@ -1,4 +1,4 @@
-name: Dakdekker Trainer Bitumen v1.6 DOCKER FIXED APK
+name: Dakdekker Trainer Bitumen v1.7 ANDROID34 FIXED APK
 
 on:
   workflow_dispatch:
@@ -67,7 +67,7 @@ jobs:
           cat > main.gd <<'EOF'
           extends Node
 
-          const VERSION := "v1.6"
+          const VERSION := "v1.7"
           const ORANGE := Color("#ff6b00")
           const DARK := Color("#111820")
           const PANEL := Color("#18212b")
@@ -400,7 +400,7 @@ jobs:
           export_filter="all_resources"
           include_filter=""
           exclude_filter=""
-          export_path="build/android/Dakdekker-Trainer-Bitumen-v1.6.apk"
+          export_path="build/android/Dakdekker-Trainer-Bitumen-v1.7.apk"
           encryption_include_filters=""
           encryption_exclude_filters=""
           encrypt_pck=false
@@ -414,11 +414,67 @@ jobs:
           architectures/arm64-v8a=true
           package/unique_name="com.dakdekkertrainer.bitumen"
           package/name="Dakdekker Trainer Bitumen"
-          version/code=160
-          version/name="1.6"
+          package/target_sdk=34
+          package/min_sdk=24
+          version/code=170
+          version/name="1.7"
           screen/immersive_mode=true
           EOF
 
+
+      - name: Installeer Android 34 Build Tools voor Godot 4.4
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "ANDROID_HOME=${ANDROID_HOME:-}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/opt/android-sdk}}"
+
+          SDKMANAGER=""
+          for CANDIDATE in \
+            "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "$SDK_ROOT/tools/bin/sdkmanager" \
+            "$(command -v sdkmanager 2>/dev/null || true)"
+          do
+            if [ -n "$CANDIDATE" ] && [ -x "$CANDIDATE" ]; then
+              SDKMANAGER="$CANDIDATE"
+              break
+            fi
+          done
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager niet gevonden in Godot-CI container."
+            find / -type f -name sdkmanager 2>/dev/null | head -20 || true
+            exit 1
+          fi
+
+          echo "SDK root: $SDK_ROOT"
+          echo "sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" \
+            "platform-tools" \
+            "build-tools;34.0.0" \
+            "platforms;android-34" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;23.2.8568313"
+
+          export ANDROID_HOME="$SDK_ROOT"
+          export ANDROID_SDK_ROOT="$SDK_ROOT"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+          echo "=== Geinstalleerde Build Tools ==="
+          ls -la "$SDK_ROOT/build-tools"
+          echo "=== Android platforms ==="
+          ls -la "$SDK_ROOT/platforms"
+
+          test -d "$SDK_ROOT/build-tools/34.0.0"
+          test -d "$SDK_ROOT/platforms/android-34"
+          test -x "$SDK_ROOT/platform-tools/adb"
 
       - name: Configureer Godot-CI
         shell: bash
@@ -450,6 +506,9 @@ jobs:
           find "$HOME/.config/godot" -maxdepth 1 -type f -print || true
           test -n "${ANDROID_HOME:-}"
           test -d "$ANDROID_HOME"
+          test -d "$ANDROID_HOME/build-tools/34.0.0"
+          test -d "$ANDROID_HOME/platforms/android-34"
+          test -x "$ANDROID_HOME/platform-tools/adb"
 
       - name: Importeer en controleer project
         shell: bash
@@ -463,21 +522,21 @@ jobs:
           set -euo pipefail
           mkdir -p build/android
           EXPORT_DIR="$(readlink -f build/android)"
-          echo "Export naar: $EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.6.apk"
+          echo "Export naar: $EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.7.apk"
 
           godot --headless --verbose --path . \
             --export-debug "Android Debug" \
-            "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.6.apk" \
+            "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.7.apk" \
             2>&1 | tee android-export.log
 
-          test -s "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.6.apk"
-          ls -lh "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.6.apk"
+          test -s "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.7.apk"
+          ls -lh "$EXPORT_DIR/Dakdekker-Trainer-Bitumen-v1.7.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-Bitumen-v1.6-APK
-          path: build/android/Dakdekker-Trainer-Bitumen-v1.6.apk
+          name: Dakdekker-Trainer-Bitumen-v1.7-APK
+          path: build/android/Dakdekker-Trainer-Bitumen-v1.7.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -485,7 +544,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Dakdekker-Trainer-Bitumen-v1.6-buildlogs
+          name: Dakdekker-Trainer-Bitumen-v1.7-buildlogs
           path: |
             godot-import.log
             android-export.log
